@@ -1,4 +1,19 @@
 html,
+body,
+canvas,
+#gameTitle,
+#restartBtn {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+canvas {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
 body {
   margin: 0;
   height: 100%;
@@ -58,12 +73,14 @@ canvas {
   color: #111;
   font-weight: bold;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 #gameTitle {
   margin: 0;
-  font-family: "Comic Sans MS", "Comic Sans", cursive;
-  font-size: 38px;
+  font-family: "Chewy", cursive;
+  font-size: 44px;
+  font-weight: 100; 
   color: #222;
   transition: color 0.8s ease, transform 0.8s ease, letter-spacing 0.8s ease, text-shadow 0.8s ease;
 }
@@ -72,7 +89,7 @@ body.demonMode #gameTitle {
   color: white;
   font-family: "Creepster", cursive;  
   /*"Cinzel Decorative", serif;*/
-  transform: scale(1.08);
+  transform: scale(1.2);
   letter-spacing: 4px;
   text-shadow: 10px 4px black;
 }
