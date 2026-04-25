@@ -1,14 +1,13 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-const helpBox = document.getElementById("helpBox");
 const restartBtn = document.getElementById("restartBtn");
 
 // ----- Scaling knobs -----
 const TILE_SIZE = 44;
 
-const START_COLS = 9;
-const START_ROWS = 9;
-const START_MINES = 10;
+const START_COLS = 10;
+const START_ROWS = 10;
+const START_MINES = 4;
 
 const MINES_PER_LEVEL = 2;
 const EXTRA_COL_EVERY_N_LEVELS = 3;
@@ -28,6 +27,7 @@ const GameStatus = {
   Playing: "playing",
   Won: "won",
   Lost: "lost",
+  Interlude: "interlude",
 };
 
 class Tile {
@@ -37,6 +37,7 @@ class Tile {
     this.isMine = false;
     this.isRevealed = false;
     this.isFlagged = false;
+    this.flagTime = 0;
     this.neighbourMines = 0;
   }
 }
@@ -54,6 +55,10 @@ class GameState {
     this.statusMessage = "Clear the board";
     this.firstClick = true;
 
+    this.interludeLines = [];
+    this.interludeIndex = 0;
+    this.interludeStartTime = 0;
+
     for (let row = 0; row < this.rows; row++) {
       const currentRow = [];
 
@@ -68,14 +73,6 @@ class GameState {
   getTile(col, row) {
     return this.tiles[row][col];
   }
-}
-
-function getLevelConfig(level) {
-  return {
-    cols: START_COLS + Math.floor((level - 1) / EXTRA_COL_EVERY_N_LEVELS),
-    rows: START_ROWS + Math.floor((level - 1) / EXTRA_ROW_EVERY_N_LEVELS),
-    mines: START_MINES + (level - 1) * MINES_PER_LEVEL,
-  };
 }
 
 function isInsideBoard(col, row) {
@@ -174,7 +171,7 @@ function calculateNumbers() {
     for (let col = 0; col < state.cols; col++) {
       const tile = state.getTile(col, row);
 
-      if (tile.isMine) {
+      if (tile.isHazard) {
         tile.neighbourMines = 0;
         continue;
       }
@@ -236,13 +233,41 @@ function toggleFlag(tile) {
   if (tile.isRevealed) return;
 
   tile.isFlagged = !tile.isFlagged;
-  state.statusMessage = tile.isFlagged ? "Flag placed" : "Flag removed";
+
+  if (tile.isFlagged) {
+    tile.flagTime = Date.now();
+    state.statusMessage = "Flag placed";
+  } else {
+    tile.flagTime = 0;
+    state.statusMessage = "Flag removed";
+  }
+}
+
+function updateTemporaryFlags() {
+  if (getHazardType() !== "sigil") return;
+
+  const now = Date.now();
+
+  for (let row = 0; row < state.rows; row++) {
+    for (let col = 0; col < state.cols; col++) {
+      const tile = state.getTile(col, row);
+
+      if (tile.isFlagged && now - tile.flagTime > 10000) {
+        tile.isFlagged = false;
+        tile.flagTime = 0;
+      }
+    }
+  }
 }
 
 function loseGame() {
   state.status = GameStatus.Lost;
-  state.statusMessage = "Boom. Try again.";
+  state.statusMessage = getDeathMessage();
   updateActionButton();
+
+  document.body.classList.add("demonMode");
+  restartBtn.textContent = "Return";
+  restartBtn.style.visibility = "visible";
 
   for (let row = 0; row < state.rows; row++) {
     for (let col = 0; col < state.cols; col++) {
@@ -263,9 +288,7 @@ function checkWin() {
     }
   }
 
-  state.status = GameStatus.Won;
-  state.statusMessage = "Level cleared";
-  updateActionButton();
+    startInterlude();
 }
 
 function getFlagCount() {
@@ -278,6 +301,22 @@ function getFlagCount() {
   }
 
   return count;
+}
+
+function drawBlankBoard() {
+  for (let row = 0; row < state.rows; row++) {
+    for (let col = 0; col < state.cols; col++) {
+      const x = BOARD_X + col * TILE_SIZE;
+      const y = BOARD_Y + row * TILE_SIZE;
+      const size = TILE_SIZE - 2;
+
+      ctx.fillStyle = "#f8f8f8";
+      ctx.fillRect(x, y, size, size);
+
+      ctx.strokeStyle = "#ddd";
+      ctx.strokeRect(x, y, size, size);
+    }
+  }
 }
 
 function updateActionButton() {
@@ -306,6 +345,87 @@ function getNumberColor(number) {
   };
 
   return colors[number] || "#111111";
+}
+
+function getHazardType() {
+  const config = getLevelConfig(currentLevel);
+  return config.hazardType ?? "mine";
+}
+
+function getHazardLabel() {
+  const labels = {
+    mine: "Mines",
+    sigil: "Sigils",
+  };
+
+  return labels[getHazardType()] ?? "Hazards";
+}
+
+function getDeathMessage() {
+  const type = getHazardType();
+
+  const lines = {
+    mine: [
+      "Too heavy-footed.",
+      "Still afraid???",
+      "You stepped exactly where I hoped."
+    ],
+    sigil: [
+      "The sigil accepts your mistake.",
+      "Marked.",
+      "Fool!",
+      "Mind your steppppp...."
+    ]
+  };
+
+  const pool = lines[type] || ["You were expected."];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function drawHazard(x, y, size) {
+  const type = getHazardType();
+
+  if (type === "sigil") {
+    drawSigil(x, y, size);
+  } else {
+    drawMine(x, y, size);
+  }
+}
+
+function drawMine(x, y, size) {
+  ctx.fillStyle = "#dc2626";
+  ctx.beginPath();
+  ctx.arc(x + size / 2, y + size / 2, 10, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#111";
+  ctx.beginPath();
+  ctx.arc(x + size / 2, y + size / 2, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSigil(x, y, size) {
+  const cx = x + size / 2;
+  const cy = y + size / 2;
+
+  ctx.strokeStyle = "#8b0000";
+  ctx.lineWidth = 3;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 14);
+  ctx.lineTo(cx + 12, cy + 9);
+  ctx.lineTo(cx - 12, cy + 9);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.fillStyle = "#d60000";
+  ctx.beginPath();
+  ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawTile(tile) {
@@ -343,15 +463,7 @@ function drawTile(tile) {
   }
 
   if (tile.isRevealed && tile.isMine) {
-    ctx.fillStyle = "#dc2626";
-    ctx.beginPath();
-    ctx.arc(x + size / 2, y + size / 2, 10, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = "#111";
-    ctx.beginPath();
-    ctx.arc(x + size / 2, y + size / 2, 5, 0, Math.PI * 2);
-    ctx.fill();
+    drawHazard(x, y, size);
   }
 
   if (tile.isRevealed && !tile.isMine && tile.neighbourMines > 0) {
@@ -389,8 +501,8 @@ function drawUI() {
   ctx.textBaseline = "top";
 
   ctx.fillText(`Level: ${currentLevel}`, uiX + 14, uiY + 12);
-  ctx.fillText(`Mines: ${state.mineCount}`, uiX + 14, uiY + 36);
-  ctx.fillText(`Flags: ${getFlagCount()}`, uiX + 120, uiY + 36);
+  ctx.fillText(`${getHazardLabel()}: ${state.mineCount}`, uiX + 14, uiY + 36);
+  ctx.fillText(`Flags: ${getFlagCount()}`, uiX + 14, uiY + 60);
 
   ctx.textAlign = "right";
 
@@ -406,21 +518,24 @@ function drawUI() {
 
   ctx.fillStyle = "#666";
   ctx.font = "13px Arial";
-  ctx.fillText("Tap/click to reveal • Right click/long press to flag", uiX + uiWidth - 14, uiY + 42);
+  ctx.fillText("Tap/click to reveal • Right click/long press to flag", uiX + uiWidth - 14, uiY + 60);
 }
 
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (state.status === GameStatus.Interlude) {
+    drawInterlude();
+    return;
+  }
+
   drawBoard();
   drawUI();
 }
 
-function hideHelpBox() {
-  if (!helpBox) return;
-  helpBox.style.display = "none";
-}
-
 function startNewGame() {
+  document.body.classList.remove("demonMode");
+
   state = new GameState(currentLevel);
   resizeCanvas();
   updateActionButton();
@@ -433,15 +548,20 @@ function goToNextLevel() {
 }
 
 restartBtn.addEventListener("click", () => {
+  if (state.status === GameStatus.Interlude) {
+    advanceInterlude();
+    return;
+  }
+
   if (state.status === GameStatus.Won) {
-    goToNextLevel();
+    currentLevel++;
+    startNewGame();
   } else {
     startNewGame();
   }
 });
 
 canvas.addEventListener("click", (event) => {
-  hideHelpBox();
 
   const mouse = getCanvasMousePosition(event.clientX, event.clientY);
   const tile = getTileAtScreenPos(mouse.x, mouse.y);
@@ -453,7 +573,6 @@ canvas.addEventListener("click", (event) => {
 
 canvas.addEventListener("contextmenu", (event) => {
   event.preventDefault();
-  hideHelpBox();
 
   const mouse = getCanvasMousePosition(event.clientX, event.clientY);
   const tile = getTileAtScreenPos(mouse.x, mouse.y);
@@ -463,11 +582,11 @@ canvas.addEventListener("contextmenu", (event) => {
   draw();
 });
 
+
 let longPressTimer = null;
 let longPressTriggered = false;
 
 canvas.addEventListener("touchstart", (event) => {
-  hideHelpBox();
   longPressTriggered = false;
 
   const touch = event.touches[0];
@@ -489,6 +608,19 @@ canvas.addEventListener("touchstart", (event) => {
 canvas.addEventListener("touchend", () => {
   clearTimeout(longPressTimer);
 });
+
+setInterval(() => {
+  if (!state) return;
+  if (state.status !== GameStatus.Playing) return;
+  if (getHazardType() !== "sigil") return;
+
+  updateTemporaryFlags();
+  draw();
+}, 250);
+
+window.addEventListener("resize", resizeCanvas);
+
+startNewGame();
 
 window.addEventListener("resize", resizeCanvas);
 
